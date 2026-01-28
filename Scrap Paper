@@ -1,0 +1,3 @@
+console.log("PAGE:", window.location.href);
+console.log("BOOTSTRAP TYPE:", typeof window.embeddedservice_bootstrap);
+console.log("READY LISTENER TEST");
