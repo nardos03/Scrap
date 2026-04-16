@@ -1,22 +1,31 @@
-Fix only the header detection and matching logic. Do not change the business logic for Step 3 or Step 3a.
+Please stop changing the Step 3 / Step 3a business logic for now. The issue is almost certainly sheet targeting and reliable header lookup.
 
-The header "Group Type API Name" does exist, but the word "Name" is visually wrapping onto the next line inside the same cell. That means the raw header value may contain a line break like "Group Type API\nName", extra spaces, or non-breaking spaces.
+Use this exact approach and then rewrite Step 3a using it.
 
-Requirements:
+IMPORTANT:
+- Do NOT use getActiveSheet() anywhere in Step 3 / Step 3a.
+- Do NOT read headers from whatever tab happens to be open.
+- Do NOT scan or flatten the full data range to detect headers.
+- Do NOT guess sheet names or header names.
+- Use explicit sheet references and normalized header matching only.
 
-1. Only read row 1 for headers.
-2. Do not scan or flatten the full data range when detecting headers.
-3. Create a reusable helper function called normalizeHeader(value).
-4. normalizeHeader(value) must:
-   - convert nulls to empty string
-   - replace non-breaking spaces with normal spaces
-   - replace line breaks (\n and \r\n) with a space
-   - trim leading/trailing spaces
-   - collapse multiple spaces into one
-   - convert to lowercase
+The workbook tabs involved are:
+- Group Types
+- Global Inputs
+- ID Sync Template
+- Sphinx Design
 
-Use this exact helper:
+What I need for Step 3a:
+- Source tab: Group Types
+- Look up the row where "Group Type API Name" = "ADMIN_GROUP"
+- Resolve values inside < > from Global Inputs
+- Do NOT use Sphinx Design yet for Step 3a
+- Clear ID Sync Template except for the header row
+- Populate row 2 in ID Sync Template
 
+Please add and use the following exact helper functions.
+
+```javascript
 function normalizeHeader(value) {
   return String(value || '')
     .replace(/\u00A0/g, ' ')
@@ -26,49 +35,201 @@ function normalizeHeader(value) {
     .toLowerCase();
 }
 
-5. Build a reusable helper function called getHeaderMap(sheet) that:
-   - reads row 1 only using:
-     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-   - normalizes each header using normalizeHeader()
-   - returns a map of normalized header name -> column index
+function getRequiredSheet_(ss, sheetName) {
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    throw new Error(`Missing required sheet: ${sheetName}`);
+  }
+  return sheet;
+}
 
-6. Do not use exact raw header matching like:
-   headers.indexOf('Group Type API Name')
+function getHeaderMap(sheet) {
+  const lastColumn = sheet.getLastColumn();
+  if (lastColumn === 0) {
+    throw new Error(`Sheet "${sheet.getName()}" has no columns.`);
+  }
 
-7. Instead, normalize both the required header and the actual row-1 headers before matching.
+  const rawHeaders = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+  const normalizedHeaders = rawHeaders.map(h => normalizeHeader(h));
+  const headerMap = {};
 
-8. The required header should normalize from:
-   "Group Type API Name"
-   to:
-   "group type api name"
+  normalizedHeaders.forEach((header, index) => {
+    if (header && !(header in headerMap)) {
+      headerMap[header] = index + 1; // 1-based column index
+    }
+  });
 
-9. If the actual header cell contains:
-   "Group Type API\nName"
-   it should normalize to:
-   "group type api name"
+  Logger.log(`Sheet: ${sheet.getName()}`);
+  Logger.log(`Raw row 1 headers: ${JSON.stringify(rawHeaders)}`);
+  Logger.log(`Normalized row 1 headers: ${JSON.stringify(normalizedHeaders)}`);
 
-10. In missing-header errors, only print:
-   - the expected normalized header
-   - the normalized row-1 headers
-Do not print the entire sheet contents or actual data rows.
+  return {
+    rawHeaders,
+    normalizedHeaders,
+    headerMap
+  };
+}
 
-11. Add temporary Logger.log statements that print:
-   - the sheet name being used
-   - the raw row-1 headers
-   - the normalized row-1 headers
+function requireHeader_(sheet, headerMapObj, requiredHeader) {
+  const normalizedRequired = normalizeHeader(requiredHeader);
+  const col = headerMapObj.headerMap[normalizedRequired];
 
-12. Use constants for required header names instead of hardcoding them in multiple places.
+  if (!col) {
+    throw new Error(
+      `Missing header in sheet "${sheet.getName()}". ` +
+      `Expected: "${requiredHeader}". ` +
+      `Normalized expected: "${normalizedRequired}". ` +
+      `Found normalized headers: ${headerMapObj.normalizedHeaders.join(', ')}`
+    );
+  }
 
-For example:
+  return col;
+}
 
-const REQUIRED_HEADERS = {
-  GROUP_TYPE_API_NAME: 'Group Type API Name'
-};
+function getGlobalVariablesMap_(globalInputsSheet) {
+  const lastRow = globalInputsSheet.getLastRow();
+  const lastColumn = globalInputsSheet.getLastColumn();
+  if (lastRow < 2 || lastColumn < 2) {
+    throw new Error('Global Inputs sheet does not contain enough data.');
+  }
 
-13. Use normalized matching for all Step 3 / Step 3a header lookups, not just Group Type API Name.
+  const values = globalInputsSheet.getRange(1, 1, lastRow, lastColumn).getValues();
+  const map = {};
 
-14. Keep all Step 3a business logic the same:
-   - clear the ID Sync Template except headers
-   - populate row 2
-   - resolve < > values from Global Inputs
-   - do not use Sphinx Design yet for Step 3a
+  for (let i = 0; i < values.length; i++) {
+    const key = String(values[i][0] || '').trim();
+    const val = values[i][1];
+
+    // Stop only on truly empty rows? No. Just ignore rows without keys.
+    if (!key) continue;
+
+    // We only want variables that look like <VarName>
+    if (/^<.*>$/.test(key)) {
+      map[key] = val;
+    }
+  }
+
+  Logger.log(`Global variable keys found: ${JSON.stringify(Object.keys(map))}`);
+  return map;
+}
+
+function replaceAngleBracketVariables_(value, globalVarsMap) {
+  const text = String(value == null ? '' : value);
+  return text.replace(/<[^>]+>/g, match => {
+    return Object.prototype.hasOwnProperty.call(globalVarsMap, match)
+      ? globalVarsMap[match]
+      : match;
+  });
+}
+
+Also add this exact debug function first so we can verify the script is reading the correct tabs and row-1 headers:
+
+function debugStep3aSheets() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const targetSheetNames = [
+    'Group Types',
+    'Global Inputs',
+    'ID Sync Template',
+    'Sphinx Design'
+  ];
+
+  Logger.log('All workbook sheets: ' + JSON.stringify(ss.getSheets().map(s => s.getName())));
+
+  targetSheetNames.forEach(name => {
+    const sheet = ss.getSheetByName(name);
+
+    if (!sheet) {
+      Logger.log(`MISSING SHEET: ${name}`);
+      return;
+    }
+
+    Logger.log(`FOUND SHEET: ${name}`);
+
+    const lastColumn = sheet.getLastColumn();
+    if (lastColumn === 0) {
+      Logger.log(`Sheet "${name}" has no columns.`);
+      return;
+    }
+
+    const row1 = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+    const normalizedRow1 = row1.map(v => normalizeHeader(v));
+
+    Logger.log(`Sheet "${name}" raw row 1: ${JSON.stringify(row1)}`);
+    Logger.log(`Sheet "${name}" normalized row 1: ${JSON.stringify(normalizedRow1)}`);
+  });
+}
+
+Then rewrite Step 3a using only explicit named sheet references like this:
+
+function step3a() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const groupTypesSheet = getRequiredSheet_(ss, 'Group Types');
+  const globalInputsSheet = getRequiredSheet_(ss, 'Global Inputs');
+  const idSyncTemplateSheet = getRequiredSheet_(ss, 'ID Sync Template');
+  const sphinxDesignSheet = getRequiredSheet_(ss, 'Sphinx Design'); // keep declared for later steps, but do not use in Step 3a
+
+  const GROUP_TYPES_HEADERS = {
+    GROUP_TYPE_API_NAME: 'Group Type API Name'
+  };
+
+  const groupTypesHeaderMap = getHeaderMap(groupTypesSheet);
+  const groupTypeApiNameCol = requireHeader_(
+    groupTypesSheet,
+    groupTypesHeaderMap,
+    GROUP_TYPES_HEADERS.GROUP_TYPE_API_NAME
+  );
+
+  const gtLastRow = groupTypesSheet.getLastRow();
+  const gtLastCol = groupTypesSheet.getLastColumn();
+  if (gtLastRow < 2) {
+    throw new Error('Group Types sheet has no data rows.');
+  }
+
+  const groupTypesData = groupTypesSheet.getRange(2, 1, gtLastRow - 1, gtLastCol).getValues();
+
+  const adminRow = groupTypesData.find(row => {
+    return normalizeHeader(row[groupTypeApiNameCol - 1]) === normalizeHeader('ADMIN_GROUP');
+  });
+
+  if (!adminRow) {
+    throw new Error('Could not find ADMIN_GROUP row in Group Types sheet.');
+  }
+
+  const globalVarsMap = getGlobalVariablesMap_(globalInputsSheet);
+
+  const resolvedRow = adminRow.map(cell => replaceAngleBracketVariables_(cell, globalVarsMap));
+
+  const idLastCol = idSyncTemplateSheet.getLastColumn();
+  if (idLastCol === 0) {
+    throw new Error('ID Sync Template sheet has no columns.');
+  }
+
+  const idLastRow = idSyncTemplateSheet.getLastRow();
+  if (idLastRow > 1) {
+    idSyncTemplateSheet.getRange(2, 1, idLastRow - 1, idLastCol).clearContent();
+  }
+
+  // Write to row 2, truncating or padding to match the template width
+  const output = resolvedRow.slice(0, idLastCol);
+  while (output.length < idLastCol) {
+    output.push('');
+  }
+
+  idSyncTemplateSheet.getRange(2, 1, 1, idLastCol).setValues([output]);
+
+  Logger.log('Step 3a completed successfully.');
+}
+
+Requirements for your rewrite:
+Keep these helper functions exactly or functionally equivalent.
+Use getSheetByName() only, never getActiveSheet().
+Read headers from row 1 only.
+Normalize headers before matching.
+For Step 3a, use Group Types as the source, Global Inputs for < > replacement, and ID Sync Template as the target.
+Do not use Sphinx Design yet in Step 3a.
+Do not change the rest of the Step 3 business logic beyond what is required to make sheet targeting and header lookup reliable.
+Return the full updated code for the helper functions, debugStep3aSheets(), and step3a().
+
+also as a rule of thumbalways preserve teh umbrella step 1 and step 2
