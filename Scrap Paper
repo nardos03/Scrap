@@ -1,3 +1,37 @@
+Please fix the script with these exact requirements:
+
+1. Do NOT guess header names.
+2. Use the exact header names exactly as they appear in the Google Sheet.
+3. In the "Group Types" tab, the correct header is "Group Type API Name" — not "Group Type API".
+4. Only read headers from row 1 of the sheet. Do not scan the full data range to detect headers.
+5. Do not flatten the entire sheet when searching for header indexes.
+6. Build a reusable helper function that:
+   - reads row 1 only
+   - trims whitespace
+   - lowercases for matching
+   - collapses repeated spaces
+   - returns a map of normalized header name -> column index
+7. Use defensive validation:
+   - if a required header is missing, throw an error showing only the actual header row values
+   - do not include the whole sheet contents in the error message
+8. Keep the logic for Step 3a the same, but fix the header lookup so it works reliably.
+9. Before writing the final code, first list the exact headers the script expects for:
+   - Group Types
+   - Global Inputs
+   - ID Sync Template
+10. Then update the code to use constants for the exact header names instead of hardcoded guesses in multiple places.
+
+Important:
+- "Group Type API Name" is the correct header in the Group Types tab.
+- Step 3a should clear the ID Sync Template tab except headers, then populate row 2.
+- Values inside < > come from Global Inputs.
+- Values inside { } come from Sphinx Design columns.
+- For Step 3a, do not reference Sphinx Design yet.
+
+
+
+
+
 console.log("PAGE:", window.location.href);
 console.log("BOOTSTRAP TYPE:", typeof window.embeddedservice_bootstrap);
 console.log("READY LISTENER TEST");
