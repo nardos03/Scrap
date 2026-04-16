@@ -1,37 +1,74 @@
-Please fix the script with these exact requirements:
+Fix only the header detection and matching logic. Do not change the business logic for Step 3 or Step 3a.
 
-1. Do NOT guess header names.
-2. Use the exact header names exactly as they appear in the Google Sheet.
-3. In the "Group Types" tab, the correct header is "Group Type API Name" — not "Group Type API".
-4. Only read headers from row 1 of the sheet. Do not scan the full data range to detect headers.
-5. Do not flatten the entire sheet when searching for header indexes.
-6. Build a reusable helper function that:
-   - reads row 1 only
-   - trims whitespace
-   - lowercases for matching
-   - collapses repeated spaces
+The header "Group Type API Name" does exist, but the word "Name" is visually wrapping onto the next line inside the same cell. That means the raw header value may contain a line break like "Group Type API\nName", extra spaces, or non-breaking spaces.
+
+Requirements:
+
+1. Only read row 1 for headers.
+2. Do not scan or flatten the full data range when detecting headers.
+3. Create a reusable helper function called normalizeHeader(value).
+4. normalizeHeader(value) must:
+   - convert nulls to empty string
+   - replace non-breaking spaces with normal spaces
+   - replace line breaks (\n and \r\n) with a space
+   - trim leading/trailing spaces
+   - collapse multiple spaces into one
+   - convert to lowercase
+
+Use this exact helper:
+
+function normalizeHeader(value) {
+  return String(value || '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/\r?\n/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+5. Build a reusable helper function called getHeaderMap(sheet) that:
+   - reads row 1 only using:
+     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+   - normalizes each header using normalizeHeader()
    - returns a map of normalized header name -> column index
-7. Use defensive validation:
-   - if a required header is missing, throw an error showing only the actual header row values
-   - do not include the whole sheet contents in the error message
-8. Keep the logic for Step 3a the same, but fix the header lookup so it works reliably.
-9. Before writing the final code, first list the exact headers the script expects for:
-   - Group Types
-   - Global Inputs
-   - ID Sync Template
-10. Then update the code to use constants for the exact header names instead of hardcoded guesses in multiple places.
 
-Important:
-- "Group Type API Name" is the correct header in the Group Types tab.
-- Step 3a should clear the ID Sync Template tab except headers, then populate row 2.
-- Values inside < > come from Global Inputs.
-- Values inside { } come from Sphinx Design columns.
-- For Step 3a, do not reference Sphinx Design yet.
+6. Do not use exact raw header matching like:
+   headers.indexOf('Group Type API Name')
 
+7. Instead, normalize both the required header and the actual row-1 headers before matching.
 
+8. The required header should normalize from:
+   "Group Type API Name"
+   to:
+   "group type api name"
 
+9. If the actual header cell contains:
+   "Group Type API\nName"
+   it should normalize to:
+   "group type api name"
 
+10. In missing-header errors, only print:
+   - the expected normalized header
+   - the normalized row-1 headers
+Do not print the entire sheet contents or actual data rows.
 
-console.log("PAGE:", window.location.href);
-console.log("BOOTSTRAP TYPE:", typeof window.embeddedservice_bootstrap);
-console.log("READY LISTENER TEST");
+11. Add temporary Logger.log statements that print:
+   - the sheet name being used
+   - the raw row-1 headers
+   - the normalized row-1 headers
+
+12. Use constants for required header names instead of hardcoding them in multiple places.
+
+For example:
+
+const REQUIRED_HEADERS = {
+  GROUP_TYPE_API_NAME: 'Group Type API Name'
+};
+
+13. Use normalized matching for all Step 3 / Step 3a header lookups, not just Group Type API Name.
+
+14. Keep all Step 3a business logic the same:
+   - clear the ID Sync Template except headers
+   - populate row 2
+   - resolve < > values from Global Inputs
+   - do not use Sphinx Design yet for Step 3a
